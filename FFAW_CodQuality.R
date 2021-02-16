@@ -3,6 +3,7 @@ library(readxl)
 library(ggOceanMaps)
 library(scales)
 library(ggrepel)
+library(lubridate)
 
 cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_ec.xlsx", sheet=1)
 
@@ -76,5 +77,21 @@ scale_x_datetime(labels = date_format("%b-%d-%Y"), date_breaks = "1 month") +
 
 
 
+
+#condition data prep
+
+colnames(cod.dat)[75:88] # names of grading columns
+
+cond.dat <- cod.dat[,c(6,23,25,56,64,75:88)]
+cond.dat <- cond.dat[-which(cond.dat$Grade == "NULL"), ] # drop "NULL" values from df
+
+cond.dat$month <- month(cond.dat$Date)
+cond.dat$year  <- year(cond.dat$Date) 
+cond.dat$day   <- day(cond.dat$Date)
+
+cols <- colnames(cond.dat)[7:19]
+cond.dat[cols] <- lapply(cond.dat[cols], factor) 
+
+ggplot(cond.dat, aes(x=month, y=Grade)) + geom_point()
 
 
