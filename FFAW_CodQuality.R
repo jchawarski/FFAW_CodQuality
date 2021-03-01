@@ -5,9 +5,9 @@ library(scales)
 library(ggrepel)
 library(lubridate)
 
-cod.dat <- read_xlsx2("Cod Quality 18-20 MI Data_ec.xlsx", sheet=1)
+cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
 
-cod.dat <- read.csv("FFAWCodQuality18-20.csv")
+cod.dat <- read.csv("FFAWCodQuality18-20_v2.csv")
 
 
 table(cod.dat$Commercial)
@@ -116,12 +116,19 @@ time.dat$Del_DT <- mdy_hms(paste(time.dat$DelDate, time.dat$DelTime), tz="Canada
 time.dat$ProcStart_DT <- mdy_hms(paste(time.dat$ProcDate, time.dat$ProcStart), tz="Canada/Newfoundland")
 time.dat$ProcEnd_DT <- mdy_hms(paste(time.dat$ProcDate, time.dat$ProcEnd), tz="Canada/Newfoundland")
 
+time.dat$Index <- c(1:length(time.dat$Date))
 
+cod.dat$Index <- c(1:length(cod.dat$Date))
 
 time.dat <- time.dat[complete.cases(time.dat), ] # Store the complete cases subset in a new data frame
 
-time.dat$Index <- c(1:length(time.dat$Date))
+cod.sub <- cod.dat %>% select(Index, HLogId, UNQID_HARVESTER, GTName, Reefer, Ice, IceType, LiveBleed, ProdWgt, Grade, GradeBP)
 
+time.sub <- time.dat %>% left_join(., cod.sub, by="Index")
+time.sub$GTName <- trimws(time.sub$GTName)
+time.sub <- time.sub %>% mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE"))
+
+#Example timeline
 time.dat  <- time.dat[,c(18:29)]
 time.melt <- melt(time.dat, id="Index")
 
@@ -141,4 +148,34 @@ time.melt %>% filter(Index %in% 1200) %>% ggplot(., aes(x=value, y=0, color=vari
        
 
 
+# look at variability of timeline in CoC
+
+#Transport time - from Pickup to Delivery
+time.sub$Transport <-  as.numeric(time.sub$Del_DT - time.sub$PU_DT)/60
+time.sub <- time.sub %>% filter(Transport > 0 & Transport < 10000)
+#Process wait time - from Delivery to Processing
+time.sub$Factory <- as.numeric(time.sub$ProcStart_DT - time.sub$Del_DT)/60 # calculated in minutes
+time.sub <- time.sub %>% filter(Factory > 0 & Factory < 10000)
+#Dock Sitting time - time from Unload to Pickup
+time.sub$Dock <- as.numeric(time.sub$PU_DT - time.sub$UnloadEnd_DT)/60 # calculated in minutes
+time.sub <- time.sub %>% filter(Dock > 0 & Dock < 10000)
+
+
+
+ggplot(time.sub, aes(x=Grade, y=Transport)) + 
+  geom_boxplot() +  
+  theme_minimal(base_size=14) + facet_grid(~GTName)
+
+ggplot(time.sub, aes(x=Grade, y=Factory)) + 
+  geom_boxplot() +  
+  theme_minimal(base_size=14) + facet_grid(~GTName)
+
+ggplot(time.sub, aes(x=Grade, y=Dock)) + 
+  geom_boxplot() +  
+  theme_minimal(base_size=14) + facet_grid(~GTName)
+
+
+
+cod.sum <- cod.sub %>% group_by(HLogId) %>% summarize(wwt = unique(ProdWgt),
+                                                      pgb = unique(GradeBP))
 
