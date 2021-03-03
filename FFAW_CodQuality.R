@@ -220,7 +220,8 @@ hist(as.numeric(cod.sum$wwt), breaks =100)
 
 # quick look at the effects of harvesters on grade
 cod.sum <- cod.sub %>% 
-  group_by(HLogId, Grade) %>%
+  group_by(HLogId, Grade) %>% 
+ #filter(!Grade %in% "NULL" ) %>%
   summarise(n = n(), 
             wwt = unique(ProdWgt), 
             site = unique(Site),
@@ -267,14 +268,38 @@ site.grd <- cod.dat %>% group_by(Site, Grade) %>% filter(!Grade %in% "NULL" ) %>
 ggplot(site.grd, aes(x=reorder(Site, -freq), y=(1-freq)*100)) + 
   geom_bar(stat="identity", fill="navyblue")  + coord_flip() + ylab("Percent Downgraded") + xlab("Site") +
   theme_minimal(base_size=10) 
-#grader effects
+
+
+# grader effects 
+# there appears to be more than one grader per haul
  
+grd.sum <- cod.sub %>% 
+   group_by(UNQID_GRADERS, Grade) %>% 
+  filter(!Grade %in% "NULL" ) %>% 
+    summarize(n=n()) %>%
+  mutate(freq = n / sum(n)) %>%
+  drop_na(freq) %>%
+  filter(Grade %in% "A") 
+
+ggplot(grd.sum, aes(x=reorder(UNQID_GRADERS, -n), y=n)) + 
+  geom_bar(stat="identity", fill="navyblue")  +
+  coord_flip() + 
+  ylab("Number of Graded Fish") + 
+  xlab("Grader") +
+  theme_minimal(base_size=10) 
+
+
+ggplot(grd.sum, aes(y=n, x=(1-freq)*100)) + 
+  geom_point()+ 
+  ylab("Number of Graded Fish") + 
+  xlab("Percent Downgraded") +
+  theme_minimal(base_size=10) 
+
+
+
+
+
+
  
- unique(cod.dat$Comments2)
-                                          
- harv.sum <- cod.sum %>% 
-   group_by() %>%
-   filter(Grade %in% "A") %>%
-   summarize(dwngrd = 1 - mean(freq))
- 
+ unique(cod.dat$Comments2) 
  
