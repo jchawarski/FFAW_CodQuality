@@ -4,25 +4,12 @@ library(ggOceanMaps)
 library(scales)
 library(ggrepel)
 library(lubridate)
+library(reshape2)
 
 cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
 
-cod.dat <- read.csv("FFAWCodQuality18-20_v2.csv")
 cod.dat$GTName <- trimws(cod.dat$GTName)
 
-
-table(cod.dat$Commercial)
-
-table(cod.dat$StewardShip)
-
-table(cod.dat$Grade)
-
-length(unique(cod.dat$HLogId))
-
-
-class(cod.dat$Lat )
-
-range(pos.dat$Lon, na.rm= T)
 
 
 # there is a lot of missing position data...about 25% is either "NULL" or erroneous entry
@@ -36,8 +23,6 @@ pos.dat <- cod.dat %>%
 
 basemap(limits = c (-60, -40, 60, 40), rotate = T, bathymetry = F) +
   geom_spatial_point(data= pos.dat, aes(x=Lon, y=Lat), inherit.aes = F, shape=24, color="red", fill="red") 
-
-
 
 #sort by gear type
 
@@ -81,19 +66,14 @@ scale_x_datetime(labels = date_format("%b-%d-%Y"), date_breaks = "1 month") +
 #condition data prep
 
 colnames(cod.dat)[75:88] # names of grading columns
-
 cond.dat <- cod.dat[,c(6,23,25,56,64,75:88)]
 cond.dat <- cond.dat[-which(cond.dat$Grade == "NULL"), ] # drop "NULL" values from df
-
 cond.dat$month <- month(cond.dat$Date)
 cond.dat$year  <- year(cond.dat$Date) 
 cond.dat$day   <- day(cond.dat$Date)
-
 cols <- colnames(cond.dat)[7:19]
 cond.dat[cols] <- lapply(cond.dat[cols], factor) 
-
 cond.melt <- reshape2::melt(cond.dat, id=c("Date", "DateSet", "DateHaul", "DelDate", "ProcDate", "SampleNo", "year", "month", "day")) 
-
 cond.melt %>% filter(value %in% "B") %>% 
   filter(!variable %in% "Grade") %>%
   ggplot(., aes(x=variable)) +
@@ -117,8 +97,7 @@ time.dat$Del_DT <- mdy_hms(paste(time.dat$DelDate, time.dat$DelTime), tz="Canada
 time.dat$ProcStart_DT <- mdy_hms(paste(time.dat$ProcDate, time.dat$ProcStart), tz="Canada/Newfoundland")
 time.dat$ProcEnd_DT <- mdy_hms(paste(time.dat$ProcDate, time.dat$ProcEnd), tz="Canada/Newfoundland")
 
-time.dat$Index <- c(1:length(time.dat$Date))
-
+time.dat$Index <- c(1:length(time.dat$Date)) #create index column 
 cod.dat$Index <- c(1:length(cod.dat$Date))
 
 time.dat <- time.dat[complete.cases(time.dat), ] # Store the complete cases subset in a new data frame
@@ -131,9 +110,7 @@ cod.sub <- cod.dat %>%
          UNQID_GRADERS,
          GTName, 
          Reefer, 
-         Ice, 
-         IceType, 
-         LiveBleed, 
+         IceType,
          ProdWgt, 
          Grade, 
          GradeBP,
@@ -166,11 +143,8 @@ time.melt %>% filter(Index %in% 1200) %>% ggplot(., aes(x=value, y=0, color=vari
        axis.text.y = element_blank(),
        axis.ticks.y = element_blank(),
        axis.title.y = element_blank())
-       
-
 
 # look at variability of timeline in CoC
-
 
 #Soak time - how long the gear was in the water
 time.sub$Soak <- as.numeric(time.sub$Haul_DT - time.sub$Set_DT)/60 # calculated in minutes
@@ -179,6 +153,22 @@ time.sub %>% filter(between(Soak, 0, 10000)) %>%
   geom_boxplot() +  ylab("Soak Time [hours]") + 
   theme_minimal(base_size=14) + facet_grid(~GTName)
 
+#Soak time distribution across years
+
+time.sub$Year <- year(as.POSIXct(as.character(time.sub$Date), format='%d/%m/%Y'))
+time.sub %>% filter(between(Soak, 0, 10000)) %>% 
+  filter(GTName == "NETS") %>%
+  ggplot(., aes(x=Grade, y=Soak/60)) + 
+  geom_boxplot() +  ylab("Soak Time [hours]") + 
+  theme_minimal(base_size=14) + facet_grid(~Year)
+
+
+#Dock Sitting time - time from Unload to Pickup
+time.sub$Dock <- as.numeric(time.sub$PU_DT - time.sub$UnloadEnd_DT)/60 # calculated in minutes
+time.sub %>% filter(between(Dock, 0, 10000)) %>%
+  ggplot(., aes(x=Grade, y=Dock/60)) + 
+  geom_boxplot() +  ylab("Dock Wait [hours]") +
+  theme_minimal(base_size=14) + facet_grid(~GTName)
 
 #Transport time - from Pickup to Delivery
 time.sub$Transport <-  as.numeric(time.sub$Del_DT - time.sub$PU_DT)/60
@@ -187,22 +177,20 @@ ggplot(., aes(x=Grade, y=Transport/60)) +
   geom_boxplot() +  ylab("Transport [hours]") +
   theme_minimal(base_size=14) + facet_grid(~GTName)
 
-
 #Process wait time - from Delivery to Processing
 time.sub$Factory <- as.numeric(time.sub$ProcStart_DT - time.sub$Del_DT)/60 # calculated in minutes
-time.sub %>% filter(Factory > 0 & Factory < 10000) %>%
+time.sub %>% filter(between(Factory, 0, 10000)) %>%
 ggplot(., aes(x=Grade, y=Factory/60)) + 
   geom_boxplot() +  ylab("Factory Wait [hours]") +
   theme_minimal(base_size=14) + facet_grid(~GTName)
 
-
-#Dock Sitting time - time from Unload to Pickup
-time.sub$Dock <- as.numeric(time.sub$PU_DT - time.sub$UnloadEnd_DT)/60 # calculated in minutes
-time.sub %>% filter(Dock > 0 & Dock < 10000) %>%
-ggplot(., aes(x=Grade, y=Dock/60)) + 
-  geom_boxplot() +  ylab("Dock Wait [hours]") +
+#Total time from haul to processing
+time.sub$Total <- as.numeric(time.sub$ProcStart_DT - time.sub$Haul_DT)/60 
+time.sub %>% filter(between(Total, 0, 10000)) %>%
+  drop_na(Grade) %>% filter(!GTName =="NULL") %>%
+  ggplot(., aes(x=Grade, y=Total/60)) + 
+  geom_boxplot() +  ylab("Haul to Processing Time [hours]") +
   theme_minimal(base_size=14) + facet_grid(~GTName)
-
 
 
 # summarize the percentage of each grade
@@ -338,14 +326,16 @@ ggplot(grd.sum, aes(x=UNQID_GRADERS,
   theme_minimal(base_size=8) + theme(axis.text.x = element_text(angle=90),
                                      legend.position = "top")
 
-
-
 #additional factors that appear to have little effect on grade
 ice <- cod.sub %>%   filter(!Grade %in% "NULL" ) %>% 
  group_by(Ice, Grade) %>% 
   summarize(n=n()) %>%
   mutate(freq = n / sum(n))
   
+icetype  <-  cod.sub %>%   
+  group_by(IceType, Grade) %>% 
+  summarize(n=n()) %>%
+  mutate(freq = n / sum(n))
 
 reefer <- cod.sub %>%   filter(!Grade %in% "NULL" ) %>% 
   group_by(Reefer, Grade) %>% 
@@ -360,6 +350,71 @@ depth <-  cod.sub %>%   filter(!Grade %in% "NULL" ) %>%
 
 depth %>% filter(Grade == "A") %>%
    ggplot(., aes(x=as.numeric(MaxDepth), y=freq)) + geom_point()
+
+
+
+
+#temperature variability within the major dataset. 
+
+
+temp.sub <- cod.dat %>% 
+  select(Index, 
+         HLogId,
+         Site,
+         GTName,
+         WaterTemp,
+         FishTemp,
+         FishTemp.1,
+         FishTemp.2,
+         FishTemp.3,
+         FishTemp.4,
+         Grade) %>%
+  mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
+  filter(!Grade %in% c("NULL", "R"))
+
+# of the 45,000 observations, 15,000 are NULL
+
+temp.sub[temp.sub == "NULL"] <- NA
+temp.sub <- temp.sub[complete.cases(temp.sub), ] # Store the complete cases subset in a new data frame
+
+# of the 45,000 observations 5,000 have temperature recorded for entire chain of custody
+
+colnames(temp.sub)[6] <- "Temp_catch" 
+colnames(temp.sub)[7] <- "Temp_land"
+colnames(temp.sub)[8] <- "Temp_trans"
+colnames(temp.sub)[9] <- "Temp_proc" 
+colnames(temp.sub)[10] <- "Temp_insp" 
+
+temp.sub$WaterTemp <- as.numeric(as.character(temp.sub$WaterTemp))
+temp.sub$Temp_catch <- as.numeric(as.character(temp.sub$Temp_catch))
+temp.sub$Temp_land <- as.numeric(as.character(temp.sub$Temp_land))
+temp.sub$Temp_trans <- as.numeric(as.character(temp.sub$Temp_trans))
+temp.sub$Temp_proc <- as.numeric(as.character(temp.sub$Temp_proc))
+temp.sub$Temp_insp <- as.numeric(as.character(temp.sub$Temp_insp))
+
+
+temp.sub %>% filter(GTName %in% "NETS") %>% 
+  filter(WaterTemp > -2) %>%
+  ggplot(., aes(x=Grade, y=WaterTemp)) + geom_boxplot()
+
+
+temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_catch)) + geom_boxplot()
+
+
+temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_land)) + geom_boxplot()
+
+temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_trans)) + geom_boxplot()
+
+
+temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_proc)) + geom_boxplot()
+
+temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_insp)) + geom_boxplot()
+
 
 
 #load temperature logger data. 
