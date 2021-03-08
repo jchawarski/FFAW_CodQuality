@@ -8,6 +8,7 @@ library(lubridate)
 cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
 
 cod.dat <- read.csv("FFAWCodQuality18-20_v2.csv")
+cod.dat$GTName <- trimws(cod.dat$GTName)
 
 
 table(cod.dat$Commercial)
@@ -135,7 +136,11 @@ cod.sub <- cod.dat %>%
          LiveBleed, 
          ProdWgt, 
          Grade, 
-         GradeBP)
+         GradeBP,
+         MaxDepth) %>%
+           mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
+            filter(!Grade %in% c("NULL", "R"))
+
 
 time.sub <- time.dat %>% left_join(., cod.sub, by="Index")
 time.sub$GTName <- trimws(time.sub$GTName)
@@ -171,7 +176,7 @@ time.melt %>% filter(Index %in% 1200) %>% ggplot(., aes(x=value, y=0, color=vari
 time.sub$Soak <- as.numeric(time.sub$Haul_DT - time.sub$Set_DT)/60 # calculated in minutes
 time.sub %>% filter(between(Soak, 0, 10000)) %>%
   ggplot(., aes(x=Grade, y=Soak/60)) + 
-  geom_boxplot() +  ylab("Soak Time [hours]") +
+  geom_boxplot() +  ylab("Soak Time [hours]") + 
   theme_minimal(base_size=14) + facet_grid(~GTName)
 
 
@@ -202,7 +207,8 @@ ggplot(., aes(x=Grade, y=Dock/60)) +
 
 # summarize the percentage of each grade
 cod.sum <- cod.sub %>% 
-group_by(HLogId, Grade) %>%
+group_by(HLogId, Grade) %>% 
+  filter(!Grade %in% "NULL") %>%
   summarise(n = n(), 
             wwt = unique(ProdWgt)) %>%
   mutate(freq = n / sum(n))
@@ -213,6 +219,14 @@ cod.sum %>%
   ggplot(., aes(x=freq, y=as.numeric(wwt))) + 
   geom_point()
 
+
+
+filter(Grade %in% "A") %>%
+  summarize(dwngrd = 1 - mean(freq))
+
+
+
+
 #distributions
 hist(cod.sum$freq, breaks= 10) 
 hist(as.numeric(cod.sum$wwt), breaks =100)
@@ -220,13 +234,13 @@ hist(as.numeric(cod.sum$wwt), breaks =100)
 
 # quick look at the effects of harvesters on grade
 cod.sum <- cod.sub %>% 
+  filter(GTName == "NETS") %>%
   group_by(HLogId, Grade) %>% 
- #filter(!Grade %in% "NULL" ) %>%
+ filter(!Grade %in% "NULL" ) %>%
   summarise(n = n(), 
             wwt = unique(ProdWgt), 
             site = unique(Site),
-            harv = unique(UNQID_HARVESTER),
-            grader = unique(UNQID_GRADERS)) %>%
+            harv = unique(UNQID_HARVESTER)) %>%
               mutate(freq = n / sum(n))
 
 H_102 <- cod.sum %>% filter(Grade %in% "A") %>% 
@@ -245,7 +259,7 @@ H_104 <- cod.sum %>% filter(harv %in% "H-104")
 # create a new df with each harvesters downgraded score as the mean  
  harv.sum <- cod.sum %>% 
    group_by(harv, site) %>%
-   filter(Grade %in% "A") %>%
+    filter(Grade %in% "A") %>%
    summarize(dwngrd = 1 - mean(freq))
                                                       
  ggplot(harv.sum, aes(x=harv, y=site, fill=dwngrd*100)) + geom_tile(stat="identity") +
@@ -253,13 +267,22 @@ H_104 <- cod.sum %>% filter(harv %in% "H-104")
    theme_minimal(base_size=8) + theme(axis.text.x = element_text(angle=90),
                                       legend.position = "top")
 
+# the effect of total catch weight on downgrading
+ cod.sum %>% 
+   filter(Grade %in% "A") %>% 
+   ggplot(., aes(y=(1-freq)*100, x=log(as.numeric(wwt)))) + 
+   xlab("Log Total Weight of Catch") + 
+   ylab("Percent Downgraded") +
+   geom_jitter() + theme_minimal(base_size=12)
  
+  
 #total downgrades by region
  
- cod.dat$GTName <- trimws(cod.dat$GTName)
- 
-site.grd <- cod.dat %>% group_by(Site, Grade) %>% filter(!Grade %in% "NULL" ) %>% 
-  filter(GTName == "NETS") %>%
+
+site.grd <- cod.sub %>% 
+  filter(GTName == "COD POTS") %>%
+  group_by(Site, Grade) %>% 
+  filter(!Grade %in% "NULL" ) %>% 
   summarise(n = n()) %>% 
    mutate(freq = n / sum(n)) %>%
     drop_na(freq) %>%
@@ -269,6 +292,8 @@ ggplot(site.grd, aes(x=reorder(Site, -freq), y=(1-freq)*100)) +
   geom_bar(stat="identity", fill="navyblue")  + coord_flip() + ylab("Percent Downgraded") + xlab("Site") +
   theme_minimal(base_size=10) 
 
+
+ggplot(, aes(x=Site, ))
 
 # grader effects 
 # there appears to be more than one grader per haul
@@ -289,17 +314,61 @@ ggplot(grd.sum, aes(x=reorder(UNQID_GRADERS, -n), y=n)) +
   theme_minimal(base_size=10) 
 
 
-ggplot(grd.sum, aes(y=n, x=(1-freq)*100)) + 
+ggplot(grd.sum, aes(y=log(n), x=(1-freq)*100)) + 
   geom_point()+ 
   ylab("Number of Graded Fish") + 
   xlab("Percent Downgraded") +
   theme_minimal(base_size=10) 
 
 
+grd.sum <- cod.sub %>% 
+  group_by(UNQID_GRADERS, Site, Grade) %>% 
+  filter(!Grade %in% "NULL" ) %>% 
+  summarize(n=n()) %>%
+  mutate(freq = n / sum(n)) %>%
+  drop_na(freq) %>%
+  filter(Grade %in% "A") 
 
 
 
+ggplot(grd.sum, aes(x=UNQID_GRADERS,
+                    y=Site, fill=(1-freq)*100)) +
+  geom_tile(stat="identity") +
+  scale_fill_viridis_c(name = "Percent Downgraded")  +
+  theme_minimal(base_size=8) + theme(axis.text.x = element_text(angle=90),
+                                     legend.position = "top")
 
- 
- unique(cod.dat$Comments2) 
- 
+
+
+#additional factors that appear to have little effect on grade
+ice <- cod.sub %>%   filter(!Grade %in% "NULL" ) %>% 
+ group_by(Ice, Grade) %>% 
+  summarize(n=n()) %>%
+  mutate(freq = n / sum(n))
+  
+
+reefer <- cod.sub %>%   filter(!Grade %in% "NULL" ) %>% 
+  group_by(Reefer, Grade) %>% 
+  summarize(n=n()) %>%
+  mutate(freq = n / sum(n))
+
+depth <-  cod.sub %>%   filter(!Grade %in% "NULL" ) %>%  
+  filter(GTName == "NETS") %>%
+  group_by(MaxDepth, Grade) %>% 
+  summarize(n=n()) %>%
+  mutate(freq = n / sum(n))
+
+depth %>% filter(Grade == "A") %>%
+   ggplot(., aes(x=as.numeric(MaxDepth), y=freq)) + geom_point()
+
+
+#load temperature logger data. 
+temp.dat <- read_xlsx("Temperature logger files/1247_34-22-08-20-1.xlsx", sheet=1)
+temp.dat <- read_xlsx("Temperature logger files/1303_51-23-08-20-1.xlsx", sheet=1)
+temp.dat <- read_xlsx("Temperature logger files/1526_36-13-09-20-1.xlsx", sheet=1)
+
+temp.dat <- temp.dat[,c(1:3)]
+colnames(temp.dat) <- c("Index","datetime", "tempC")
+
+ggplot(temp.dat, aes(x=datetime, y=tempC)) + geom_path() +
+  theme_minimal()
