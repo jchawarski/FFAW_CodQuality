@@ -33,7 +33,7 @@ gear.tbl <- gear.tbl %>% arrange(desc(value)) %>%
 
 ggplot(gear.tbl, aes(x = "", y = value, fill=fct_inorder(Gear))) + 
   geom_bar(width=1, stat = "identity", alpha=0.8) + 
-  geom_label_repel(aes(label = prop), size=6, show.legend = F, nudge_x = 0.1) +
+  #geom_label_repel(aes(label = prop), size=6, show.legend = F, nudge_x = 0.1) +
   #geom_text(aes(x = 1.5, y = midpoint, label = label), angle=45) +
   coord_polar("y", start=0) +
   scale_fill_brewer(palette = "Paired") +
@@ -158,9 +158,9 @@ time.sub %>% filter(between(Soak, 0, 10000)) %>%
 time.sub$Year <- year(as.POSIXct(as.character(time.sub$Date), format='%d/%m/%Y'))
 time.sub %>% filter(between(Soak, 0, 10000)) %>% 
   filter(GTName == "NETS") %>%
-  ggplot(., aes(x=Grade, y=Soak/60)) + 
-  geom_boxplot() +  ylab("Soak Time [hours]") + 
-  theme_minimal(base_size=14) + facet_grid(~Year)
+  ggplot(., aes(x=as.factor(Year), y=Soak/60)) + ylim(0,40) +
+  geom_boxplot(outlier.shape = NA) +  ylab("Soak Time [hours]") + 
+  theme_minimal(base_size=14)
 
 
 #Dock Sitting time - time from Unload to Pickup
@@ -393,29 +393,26 @@ temp.sub$Temp_proc <- as.numeric(as.character(temp.sub$Temp_proc))
 temp.sub$Temp_insp <- as.numeric(as.character(temp.sub$Temp_insp))
 
 
-temp.sub %>% filter(GTName %in% "NETS") %>% 
+watertemp <- temp.sub %>% filter(GTName %in% "NETS") %>% 
   filter(WaterTemp > -2) %>%
-  ggplot(., aes(x=Grade, y=WaterTemp)) + geom_boxplot()
+  ggplot(., aes(x=Grade, y=WaterTemp)) + geom_boxplot() + theme_minimal()
 
+catchtemp <- temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_catch)) + geom_boxplot() + theme_minimal()
 
-temp.sub %>% filter(GTName %in% "NETS") %>% 
-  ggplot(., aes(x=Grade, y=Temp_catch)) + geom_boxplot()
+landtemp <- temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_land)) + geom_boxplot() + theme_minimal()
 
+transtemp <- temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_trans)) + geom_boxplot() + theme_minimal()
 
-temp.sub %>% filter(GTName %in% "NETS") %>% 
-  ggplot(., aes(x=Grade, y=Temp_land)) + geom_boxplot()
+proctemp <- temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_proc)) + geom_boxplot() + theme_minimal()
 
-temp.sub %>% filter(GTName %in% "NETS") %>% 
-  ggplot(., aes(x=Grade, y=Temp_trans)) + geom_boxplot()
+insptemp <- temp.sub %>% filter(GTName %in% "NETS") %>% 
+  ggplot(., aes(x=Grade, y=Temp_insp)) + geom_boxplot() + theme_minimal()
 
-
-temp.sub %>% filter(GTName %in% "NETS") %>% 
-  ggplot(., aes(x=Grade, y=Temp_proc)) + geom_boxplot()
-
-temp.sub %>% filter(GTName %in% "NETS") %>% 
-  ggplot(., aes(x=Grade, y=Temp_insp)) + geom_boxplot()
-
-
+cowplot::plot_grid(watertemp, catchtemp, landtemp, transtemp, proctemp, insptemp)
 
 #load temperature logger data. 
 temp.dat <- read_xlsx("Temperature logger files/1247_34-22-08-20-1.xlsx", sheet=1)
