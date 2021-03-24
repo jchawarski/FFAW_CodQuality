@@ -1,12 +1,18 @@
 library(tidyverse)
 library(readxl)
-library(ggOceanMaps)
 library(scales)
 library(ggrepel)
 library(lubridate)
 library(reshape2)
 
 cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
+
+cod.dat <- read_excel("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
+
+cod.dat <- read.csv("Cod Quality 18-20 MI Data_V3.csv")
+
+cod.dat <- read.csv("GillNetSoakTime_corrected.csv")
+
 
 cod.dat$GTName <- trimws(cod.dat$GTName)
 
@@ -124,6 +130,8 @@ time.sub$GTName <- trimws(time.sub$GTName)
 time.sub <- time.sub %>% mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
                   filter(!Grade %in% c("NULL", "R"))
 
+time.sub$date <- as.POSIXct(as.character(time.sub$Date), format='%m/%d/%Y')
+time.sub$year <- year(time.sub$date)
 
 
 #Example timeline
@@ -151,7 +159,7 @@ time.sub$Soak <- as.numeric(time.sub$Haul_DT - time.sub$Set_DT)/60 # calculated 
 time.sub %>% filter(between(Soak, 0, 10000)) %>%
   ggplot(., aes(x=Grade, y=Soak/60)) + 
   geom_boxplot() +  ylab("Soak Time [hours]") + 
-  theme_minimal(base_size=14) + facet_grid(~GTName)
+  theme_minimal(base_size=14) + facet_grid(~year)
 
 #Soak time distribution across years
 
