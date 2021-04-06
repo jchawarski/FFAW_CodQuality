@@ -6,7 +6,7 @@
 library(tidyverse)
 library(lubridate)
 
-
+cod.dat$Index <- c(1:length(cod.dat$Date))
 
 cod.sub <- cod.dat %>% 
   select(Index,

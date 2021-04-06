@@ -170,6 +170,15 @@ time.sub %>% filter(between(Soak, 0, 10000)) %>%
   geom_boxplot(outlier.shape = NA) +  ylab("Soak Time [hours]") + 
   theme_minimal(base_size=14)
 
+#soak time - UPDATED 
+cod.sub$date <- as.POSIXct(as.character(cod.sub$Date), format='%m/%d/%Y')
+cod.sub$year <- year(cod.sub$date)
+cod.sub %>% 
+  ggplot(., aes(x=Grade, y=Soak/60)) + 
+  geom_boxplot() +  ylab("Soak Time [hours]") + 
+  theme_minimal(base_size=14) + facet_grid(~year)
+
+
 
 #Dock Sitting time - time from Unload to Pickup
 time.sub$Dock <- as.numeric(time.sub$PU_DT - time.sub$UnloadEnd_DT)/60 # calculated in minutes
