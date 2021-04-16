@@ -1,9 +1,4 @@
-library(tidyverse)
-library(readxl)
-library(scales)
-library(ggrepel)
-library(lubridate)
-library(reshape2)
+
 
 cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
 
@@ -13,6 +8,9 @@ cod.dat <- read.csv("Cod Quality 18-20 MI Data_V3.csv")
 
 cod.dat <- read.csv("GillNetSoakTime_corrected.csv")
 
+cod.dat2 <- read.csv("Soak time corrected_Other gear.csv")
+
+cod.dat <- cod.dat %>% bind_rows(cod.dat2)
 
 cod.dat$GTName <- trimws(cod.dat$GTName)
 
