@@ -6,8 +6,23 @@
 library(tidyverse)
 library(lubridate)
 
-cod.dat$Index <- c(1:length(cod.dat$Date))
+#set up a standard theme for all plots 
+theme <- theme_bw(base_size = 14)
 
+
+#modelling tools
+library(lme4)
+library(DHARMa)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+
+
+### DATA PREPARATION ###
+
+cod.dat$Index <- c(1:length(cod.dat$Date)) # an an index for each measurement 
+
+#subset the relevant information for the model
 cod.sub <- cod.dat %>% 
   select(Index,
          Date,
@@ -68,28 +83,66 @@ cod.in <- cod.sub %>%
                                        filter(between(time, 0, 10000)) %>%
                                         filter(soak > 0)
 
+#pull out year
 cod.in$date <- as.POSIXct(as.character(cod.in$date), format='%m/%d/%Y')
 cod.in$year <- year(cod.in$date)
 
+#convert variables to numeric due to poor formatting in dataset
 cod.in$water_temp <- as.numeric(as.character(cod.in$water_temp))
 cod.in$trans_temp <- as.numeric(as.character(cod.in$trans_temp))
 cod.in$wwt <- as.numeric(as.character(cod.in$wwt))
 cod.in$time <- as.numeric(as.character(cod.in$time))
 
+#convert from frequency of A to frequency of non-"A"
 cod.in$freq <- 1- cod.in$freq
 
+#create a binary temperature variable to deal with bimodal distribution
+hist(cod.in$water_temp)
+
+cod.in <- cod.in %>% mutate(bi.temp = case_when(water_temp <= 5 ~ 0, 
+                                                water_temp > 5 ~ 1))
+
+
+
+### DATA EXPLORATION AND PLOTS ###
+#quick and dirty data explorations done here
+plot(cod.in$time, cod.in$temp)
+plot(cod.in$temp, cod.in$wwt)
+plot(cod.in$wwt, cod.in$freq)
+plot(cod.in$time, cod.in$freq)
+plot(cod.in$temp, cod.in$freq)
+hist(cod.in$freq, breaks =25)
+
+#quality as frequency on non-A
+raw <- cod.in %>%
+ggplot(., aes(x=freq)) + geom_histogram(bins=10, color="black") + theme
+
+#quality as binary
+binary <- cod.in %>%
+ggplot(., aes(x=quality, fill= quality)) + geom_bar(color="black") + 
+  scale_fill_manual(values= c("grey42", "grey70")) + 
+  theme
+
+library(cowplot)
+plot_grid(raw, binary, ncol=2, align="hv")
+
+#histogram of soak time
+soak <- cod.in %>%
+  ggplot(., aes(x=soak/60)) + geom_histogram(bins=20, color="black", alpha=0.8) + 
+  xlab("Soak Time [hrs]") + theme
+#histogram of total transport time
+total <- cod.in %>%
+  ggplot(., aes(x=time/60)) + geom_histogram(bins=20, color="black", alpha = 0.8) + 
+  xlab("Transport Time [hrs]") + theme
+
+plot_grid(soak, total, ncol=2, align="hv")
+
+### MODELLING ###
 
 # Setting up the model
-
-library(glmmTMB)
-
-plot(cod.in$time, cod.in$temp)
-
-plot(cod.in$temp, cod.in$wwt)
-
+library(glmmTMB)  #tried for 'other' types of distributions like quasi-poisson - not useful in the ednd
 tmb.glm <- glmmTMB(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader), 
                  data=cod.in, family = nbinom1())
-
 
 first.glm <- glmer.nb(freq ~ wwt + time + temp + (1 | harvester) + (1 | grader),  
                      data=cod.in)
@@ -97,15 +150,9 @@ first.glm <- glmer.nb(freq ~ wwt + time + temp + (1 | harvester) + (1 | grader),
 first.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader),  
                       data=cod.in, family="binomial")
 
+qqnorm(residuals(first.glm)) # qnorm plot, but DHARMa is better
 
-plot(cod.in$wwt, cod.in$freq)
-plot(cod.in$time, cod.in$freq)
-plot(cod.in$temp, cod.in$freq)
-
-hist(cod.in$freq, breaks =25)
-
-qqnorm(residuals(first.glm))
-
+#predicted vs. residual plot - DHARMa is better
 ggplot(data.frame(eta=predict(first.glm,type="link"),pearson=residuals(first.glm,type="pearson")),
        aes(x=eta,y=pearson)) +
   geom_point() +
@@ -117,9 +164,6 @@ ggplot(data.frame(lev=hatvalues(first.glm),pearson=residuals(first.glm,type="pea
   geom_point() +
   theme_bw()
 
-
-library(DHARMa)
-library(lme4)
 #poisson distribution - full dataset
 pois.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader) + (1 | site),  
       data=cod.in, family="poisson")
@@ -181,7 +225,6 @@ simulationOutput <- simulateResiduals(fittedModel = nb1nz.glm, plot = T)
 
 testZeroInflation(simulationOutput)
 
-
 # zero inflated negative binomial model - full dataset
 
 zinb.glm <- glmmTMB(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader), 
@@ -203,7 +246,6 @@ zip.glm <- glmmTMB(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harveste
 testDispersion(zip.glm)
 simulationOutput <- simulateResiduals(fittedModel = zip.glm, plot = T)
 
-
 # binomial model
 
 binom.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader),  
@@ -212,9 +254,7 @@ binom.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harveste
 testDispersion(binom.glm)
 simulationOutput <- simulateResiduals(fittedModel = binom.glm, plot = T)
 
-
 #quasibinomial 
-
 
 # convert data to binomial - seems to be supported by group. But need to decide on a final threshold
 
@@ -241,31 +281,39 @@ summary(true.binom)
 
 #add water temperature to the binomial model
 
-
-true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + scale(water_temp) +  (1 | harvester) + (1 | grader),  
+true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + scale(watertemp) +  (1 | harvester) + (1 | grader),  
                     data=cod.in, family="binomial")
 
 testDispersion(true.binom)
 simulationOutput <- simulateResiduals(fittedModel = true.binom, plot = T)
 summary(true.binom)
 
+#convert water temp to binary form  0 = cold, 1= warm using a 5 deg C threshold
+true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + bi.temp +  (1 | harvester) + (1 | grader),  
+                    data=cod.in, family="binomial")
+
+
 #drop transport temp and total time, because it seems to be useless
 true.binom <- glmer(quality ~ scale(wwt) + scale(soak) + scale(water_temp) +   (1 | harvester) + (1 | grader),  
                     data=cod.in, family="binomial")
-
+#same but use binary watertemp
+true.binom <- glmer(quality ~ scale(wwt) + scale(soak) + scale(bi.temp) +   (1 | harvester) + (1 | grader),  
+                    data=cod.in, family="binomial")
 
 # drop just transport temp
 true.binom <- glmer(quality ~ scale(wwt) + scale(soak) + scale(water_temp) +  scale(time) +  (1 | harvester) + (1 | grader),  
                     data=cod.in, family="binomial")
 
-
-
+#same but use binary water temp
+true.binom <- glmer(quality ~ scale(wwt) + scale(soak) + scale(bi.temp) +  scale(time) +  (1 | harvester) + (1 | grader),  
+                    data=cod.in, family="binomial")
 
 testDispersion(true.binom)
 simulationOutput <- simulateResiduals(fittedModel = true.binom, plot = T)
 summary(true.binom)
 
 
+# model output, in table format. 
 library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
