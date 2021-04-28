@@ -30,14 +30,19 @@ basemap(limits = c (-60, -40, 60, 40), rotate = T, bathymetry = F) +
 
 #sort by gear type
 
-gear.tbl <- table(cod.dat$GTName) %>% melt()
+gear.tbl <- table(cod.dat$GTName) %>% data.frame() %>% mutate("Gear" = recode(Var1, "HOOK AND LINE" = "HANDLINE")) %>% melt()
 colnames(gear.tbl)[1] <- "Gear"
 gear.tbl <- gear.tbl %>% arrange(desc(value)) %>%
-  mutate(prop = percent(value / sum(value))) 
+  mutate(prop = value / sum(value)) 
 
-ggplot(gear.tbl, aes(x = "", y = value, fill=fct_inorder(Gear))) + 
+gear.tbl <- gear.tbl[2:5] 
+gear.tbl <- gear.tbl %>% group_by(Gear) %>% summarise(prop = sum(prop))
+
+label <- c("80.4%", "8.6%", "8.3%", "2%", "0.8%")
+
+ggplot(gear.tbl, aes(x = "", y = prop, fill=fct_inorder(Gear))) + 
   geom_bar(width=1, stat = "identity", alpha=0.8) + 
-  #geom_label_repel(aes(label = prop), size=6, show.legend = F, nudge_x = 0.1) +
+ #geom_label_repel(aes(label = round(prop*100, digits=1)), size=6, show.legend = F, nudge_x = 0.1) +
   #geom_text(aes(x = 1.5, y = midpoint, label = label), angle=45) +
   coord_polar("y", start=0) +
   scale_fill_brewer(palette = "Paired") +
@@ -77,14 +82,15 @@ cond.dat$year  <- year(cond.dat$Date)
 cond.dat$day   <- day(cond.dat$Date)
 cols <- colnames(cond.dat)[7:19]
 cond.dat[cols] <- lapply(cond.dat[cols], factor) 
-cond.melt <- reshape2::melt(cond.dat, id=c("Date", "DateSet", "DateHaul", "DelDate", "ProcDate", "SampleNo", "year", "month", "day")) 
-cond.melt %>% filter(value %in% "B") %>% 
+cond.melt <- reshape2::melt(cond.dat, id=c("Date", "DateSet", "DateHaul", "PUDate", "UNQID_PRO", "SampleSize", "SampleNo", "IceType")) 
+cond.melt %>% filter(!value %in% c("A", "R", "`")) %>% 
   filter(!variable %in% "Grade") %>%
-  ggplot(., aes(x=variable)) +
-  geom_bar(fill="navyblue") + 
+  ggplot(., aes(x=variable, fill=value)) + coord_flip() + labs(fill="Grade") +
+  scale_fill_manual(values=c("grey60", "black")) +
+  geom_bar(alpha=0.8) + 
   xlab("Condition") + ylim(0,3000) +
-  annotate("text", y=3000, x=5, label= "B Grading") + 
-  theme_minimal(base_size=14)
+  #annotate("text", y=3000, x=5, label= "B Grading") + 
+  theme
 
 
 time.dat <- cod.dat %>% select(Date, DateSet, TimeSet, DateHaul, TimeHaul, StowStart, StowEnd, LandTime, UnloadStart, UnloadEnd, PUDate, PUTime, DelDate, DelTime, ProcDate, ProcStart, ProcEnd)
@@ -136,21 +142,55 @@ time.sub$year <- year(time.sub$date)
 time.dat  <- time.dat[,c(18:29)]
 time.melt <- melt(time.dat, id="Index")
 
+
+time.labels 
+
 dislocations <- runif(11,-1.5,1.5)
 
-time.melt %>% filter(Index %in% 1200) %>% ggplot(., aes(x=value, y=0, color=variable, label=variable)) +
+time.melt %>% filter(Index %in% 1550) %>% ggplot(., aes(x=value, y=0, label=variable)) +
   geom_hline(yintercept = 0, linetype="dashed") +
   geom_point(size=4) + 
   geom_segment(  aes(x = value, y=dislocations, xend=value, yend=0, alpha=.7 )) +
   geom_text(aes(x = value, y = dislocations, label=variable), angle = 45, position="jitter") + ylim(-2,2) + 
   
-  theme_minimal(base_size=14) +
+  theme_bw(base_size=14) +
   theme(legend.position="none", 
        axis.text.y = element_blank(),
        axis.ticks.y = element_blank(),
        axis.title.y = element_blank())
 
+
+time.dat$day <- yday(time.dat$Set_DT)
+
+ggplot(time.dat, aes(x=day)) + geom_histogram(color="black", bins=36) +xlim(0,360) +  xlab("Julian Day") + theme
+
 # look at variability of timeline in CoC
+time.dat$Soak <- as.numeric(time.dat$Haul_DT - time.dat$Set_DT)/60/60 # calculated in minutes
+
+time.dat$Stow <- as.numeric(time.dat$Stowend_DT - time.dat$Stowstart_DT)/60/60
+
+time.dat$Unload <-  as.numeric(time.dat$UnloadEnd_DT - time.dat$UnloadStart_DT)/60/60
+
+time.dat$Dock <- as.numeric(time.dat$PU_DT - time.dat$UnloadEnd_DT)/60/60 # calculated in minutes
+
+time.dat$Delivery <-  as.numeric(time.dat$Del_DT - time.dat$PU_DT)/60/60
+
+time.dat$Factory <- as.numeric(time.dat$ProcStart_DT - time.dat$Haul_DT)/60/60 
+
+
+time.melt <- melt(time.dat, by=c("Soak", "Stow", "Unload", "Dock", "Delivery", "Factory"))
+
+
+time.melt %>% filter(variable %in% c("Soak", "Stow", "Unload", "Dock", "Delivery", "Factory")) %>%
+  filter(value > 0) %>% filter(value < 2500) %>% 
+  ggplot(., aes(x=reorder(variable,value), y=log10(value), group=variable)) + xlab("Time Intervals") + ylab("log10(Hours)") +
+  geom_boxplot() + theme
+
+hist(time.dat$Unload)
+ggplot(time.melt, aes(x=variable))
+
+
+
 
 #Soak time - how long the gear was in the water
 time.sub$Soak <- as.numeric(time.sub$Haul_DT - time.sub$Set_DT)/60 # calculated in minutes

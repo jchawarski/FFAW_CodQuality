@@ -44,7 +44,7 @@ cod.sub <- cod.dat %>%
          DateHaul,
          TimeHaul) %>%
   mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
-  filter(!Grade %in% c("NULL")) %>% 
+  filter(!Grade %in% c("NULL"))
   
 
 cod.sub$Haul_DT <- mdy_hms(paste(cod.sub$DateHaul, cod.sub$TimeHaul), tz="Canada/Newfoundland")
@@ -55,12 +55,11 @@ cod.sub$Set_DT <- mdy_hms(paste(cod.sub$DateSet, cod.sub$TimeSet), tz="Canada/Ne
 cod.sub$Haul_DT <- mdy_hms(paste(cod.sub$DateHaul, cod.sub$TimeHaul), tz="Canada/Newfoundland")
 cod.sub$Soak <- as.numeric(cod.sub$Haul_DT - cod.sub$Set_DT)/60 
 
-
 colnames(cod.sub)[13] <- "Trans_Temp"
 
 cod.in <- cod.sub %>%
-           #filter(GTName %in% "NETS") %>%
-        group_by(HLogId, Bruising) %>%                 #replace Grade with bruising, or texture
+          filter(GTName %in% "NETS") %>%
+        group_by(HLogId,Bruising) %>%                 #replace Grade with bruising, or texture
           dplyr::summarise(gear = unique(GTName), 
                     date = unique(Date),
                     n = n(), 
@@ -97,17 +96,21 @@ cod.in$time <- as.numeric(as.character(cod.in$time))
 cod.in$freq <- 1- cod.in$freq
 
 #create a binary temperature variable to deal with bimodal distribution
-hist(cod.in$water_temp)
+#cod.in <- cod.in %>% mutate(bi.temp = case_when(water_temp <= 5 ~ 0, 
+ #                                               water_temp > 5 ~ 1))
 
-cod.in <- cod.in %>% mutate(bi.temp = case_when(water_temp <= 5 ~ 0, 
-                                                water_temp > 5 ~ 1))
+
+cod.in$harvester <- as.factor(cod.in$harvester)
+cod.in$site <- as.factor(cod.in$site)
+cod.in$grader <- as.factor(cod.in$grader)
+
 
 
 
 ### DATA EXPLORATION AND PLOTS ###
 #quick and dirty data explorations done here
 plot(cod.in$time, cod.in$temp)
-plot(cod.in$temp, cod.in$wwt)
+plot(cod.in$trans_temp, cod.in$wwt)
 plot(cod.in$wwt, cod.in$freq)
 plot(cod.in$time, cod.in$freq)
 plot(cod.in$temp, cod.in$freq)
@@ -137,6 +140,17 @@ total <- cod.in %>%
 
 plot_grid(soak, total, ncol=2, align="hv")
 
+
+tt <- cod.in %>%
+  ggplot(., aes(x=trans_temp)) + geom_histogram(bins=20, color="black", alpha = 0.8) + 
+  xlab("Transport Temp") + theme
+
+wt <- cod.in %>%
+  ggplot(., aes(x=water_temp)) + geom_histogram(bins=20, color="black", alpha = 0.8) + 
+  xlab("Water Temp") + theme
+
+
+plot_grid(tt, wt, ncol=2, align="hv")
 ### MODELLING ###
 
 # Setting up the model
@@ -178,7 +192,7 @@ testDispersion(pois.glm)
 simulationOutput <- simulateResiduals(fittedModel = pois.glm, plot = T)
 
 #poisson distribution - zeros removed
-poisnz.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader) + (1 | site),  
+poisnz.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(trans_temp) + (1 | harvester) + (1 | grader) + (1 | site),  
                   data=subset(cod.in, freq > 0), family="poisson")
 
 testDispersion(poisnz.glm)
@@ -248,7 +262,7 @@ simulationOutput <- simulateResiduals(fittedModel = zip.glm, plot = T)
 
 # binomial model
 
-binom.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(temp) + (1 | harvester) + (1 | grader),  
+binom.glm <- glmer(freq ~ scale(wwt) + scale(time) + scale(trans_temp) + (1 | harvester) + (1 | grader) + (1 | site),  
                   data=cod.in, family="binomial")
 
 testDispersion(binom.glm)
@@ -261,7 +275,7 @@ simulationOutput <- simulateResiduals(fittedModel = binom.glm, plot = T)
 cod.in <- cod.in %>% mutate(quality = case_when(freq < 0.1 ~ 1,
                                                   freq >= 0.1 ~ 0))
 
-true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + (1 | harvester) + (1 | grader) + (1 | site) ,  
+true.binom <- glmer(quality ~ scale(wwt) + scale(time) +scale(trans_temp) + (1 | harvester) + (1 | site) + (1|grader),  
       data=cod.in, family="binomial")
 
 testDispersion(true.binom)
@@ -271,7 +285,7 @@ summary(true.binom)
 
 #add soak time to the binomial model
 
-true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) +  (1 | harvester) + (1 | grader) + (1 | site) ,  
+true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) +  (1 | harvester)+ (1 | site),  
                     data=cod.in, family="binomial")
 
 testDispersion(true.binom)
@@ -281,7 +295,7 @@ summary(true.binom)
 
 #add water temperature to the binomial model
 
-true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + scale(watertemp) +  (1 | harvester) + (1 | grader),  
+true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + scale(water_temp) +  (1 | harvester) + (1 | site),  
                     data=cod.in, family="binomial")
 
 testDispersion(true.binom)
@@ -324,3 +338,71 @@ tab_model(binom.glm)
 tab_model(zinb.glm)
 tab_model(true.binom)
 
+
+#BEST models - re-run the sampling for cod.in for net vs. all gear, adding soak time, and texture and bruising both with soak time. 
+
+binom1.ag <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + (1 | harvester) + (1 | grader) + (1 | site) ,  
+                    data=cod.in, family="binomial")
+
+binom2.ag <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) +  (1 | harvester) + (1 | grader) + (1 | site) ,  
+                    data=cod.in, family="binomial")
+
+
+binom1.nets <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + (1 | harvester) +  (1 | site) ,  
+                   data=cod.in, family="binomial")
+
+binom2.nets <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) +  (1 | harvester) + (1 | site) ,  
+                   data=cod.in, family="binomial")
+
+
+texture.ag <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + (1 | harvester) + (1 | grader) + (1 | site) ,  
+                    data=cod.in, family="binomial")
+  
+  
+bruise.ag  <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + scale(soak) + (1 | harvester)  + (1 | site) ,  
+                    data=cod.in, family="binomial")
+  
+
+cod.in <- cod.in %>% ungroup() %>% mutate(gear_code = case_when(gear=="NETS" ~ "A",
+                                                  gear=="LONGLINE" ~ "B",
+                                                  gear=="COD POTS" ~ "C",
+                                                  gear=="HANDLINE" ~ "D"))
+cod.in$gear_code <- as.factor(cod.in$gear_code)
+
+gear.mod <- glmer(quality ~ scale(wwt) + scale(time) + gear_code + (1 | harvester) + (1 | grader) + (1 | site),
+                  data=cod.in, family="binomial")
+
+testDispersion(gear.mod)
+simulationOutput <- simulateResiduals(fittedModel = gear.mod, plot = T)
+summary(gear.mod)
+
+
+tab_model(binom1.ag, binom2.ag, binom1.nets, binom2.nets, texture.ag, bruise.ag)
+
+bi.ag1 <- plot_model(binom1.ag, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
+  xlab("") + ylab("") + labs(title="Quality [All Gear]") + theme 
+
+bi.net1 <- plot_model(binom1.nets, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
+  xlab("") +  ylab("") + labs(title="Quality [Gillnets]") + theme 
+
+bi.gear <- plot_model(gear.mod, show.values = T, sort.est = T, vline.color = "red") + 
+  scale_x_discrete(labels=rev(c("Longline", "Handline", "Cod Pots", "time", "wwt"))) + # ylim(0.5, 1.5) +
+ xlab("Explanatory Variables") + ylab("") + labs(title="Quality [Compare Gear]") + theme 
+
+
+#bi.ag2 <- plot_model(binom2.ag, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
+ # xlab("Explanatory Variables") + ylab("") + labs(title="Quality [All Gear]") + theme 
+
+bi.net2 <- plot_model(binom2.nets, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
+  xlab("") + ylab("")  + labs(title="Quality [Gillnets]") + theme 
+
+bi.text <- plot_model(texture.ag, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
+  xlab("") + labs(title="Texture [Gillnets]") + theme 
+
+bi.bruise <- plot_model(bruise.ag, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
+  xlab("") + labs(title="Bruising [Gillnets]") + theme 
+
+
+
+
+cowplot::plot_grid(bi.ag1, bi.net1, bi.gear,bi.net2, bi.text, bi.bruise, ncol=2)
