@@ -1,23 +1,26 @@
+#FFAW Cod Quality project
+# Author: Julek Chawarski [julek.chawarski@mi.mun.ca]
+# April 2021
+# R version 4.0.4 
+# This script is for looking at and cleaning the data included in the Cod Quality database provided by FFAW
 
-
-cod.dat <- read_xlsx("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
-
-cod.dat <- read_excel("Cod Quality 18-20 MI Data_V1.3.xlsx", sheet=1)
+library(tidyverse)  # I rely heavily on dplyr functions 
+library(ggrepel)    # extra geoms for plotting
+library(reshape2)   # for meltings dfs
+library(cowplot)    # required for composite plots using plot_grid()
 
 cod.dat <- read.csv("Cod Quality 18-20 MI Data_V3.csv")
 
 cod.dat <- read.csv("GillNetSoakTime_corrected.csv")
-
 cod.dat2 <- read.csv("Soak time corrected_Other gear.csv")
-
+# combine the two corrected datasets into 1
 cod.dat <- cod.dat %>% bind_rows(cod.dat2)
+cod.dat$GTName <- trimws(cod.dat$GTName)    # trims extra white space in gear names 
+cod.dat <- cod.dat %>% mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE"))  # these are the same gear
 
-cod.dat$GTName <- trimws(cod.dat$GTName)
+## there is a lot of missing position data...about 25% is either "NULL" or erroneous entry
 
-
-
-# there is a lot of missing position data...about 25% is either "NULL" or erroneous entry
-
+#summarises the lat and long positions of all the hauls
 pos.dat <- cod.dat %>% 
   group_by(HLogId) %>% 
   summarise(Lat= mean(as.numeric(Lat)), 
@@ -25,55 +28,56 @@ pos.dat <- cod.dat %>%
              filter(Lon > -100 & Lon < -40) %>%
               filter(Lat < 100 & Lat >40)
 
+# plots the points
+library(ggOceanMaps)
 basemap(limits = c (-60, -40, 60, 40), rotate = T, bathymetry = F) +
   geom_spatial_point(data= pos.dat, aes(x=Lon, y=Lat), inherit.aes = F, shape=24, color="red", fill="red") 
 
-#sort by gear type
+#a better/simpler figure map
+locs <- read.csv("CodQualityCommunity_latlon.csv") # Ian provided these positions in a sep df. 
+basemap(limits = c (-60, -50, 53, 46), rotate = F, bathymetry = F) + xlab("Longitude") + ylab("Latitude") + 
+  geom_spatial_point(data= locs, aes(x=Long, y=Lat), inherit.aes = F, shape=24, color="red", fill="red")  
+#geom_spatial_text_repel(data= locs, aes(x=Long, y=Lat, label=Community), size=2, max.overlaps=84)  # includes text labels
 
-gear.tbl <- table(cod.dat$GTName) %>% data.frame() %>% mutate("Gear" = recode(Var1, "HOOK AND LINE" = "HANDLINE")) %>% melt()
-colnames(gear.tbl)[1] <- "Gear"
-gear.tbl <- gear.tbl %>% arrange(desc(value)) %>%
-  mutate(prop = value / sum(value)) 
+#gear type frequency table
+  gear.tbl <- table(cod.dat$GTName) %>% data.frame() #  %>% melt()
+    colnames(gear.tbl)[1] <- "Gear"
+    gear.tbl <- gear.tbl %>% arrange(desc(Freq)) %>%
+          mutate(prop = Freq / sum(Freq)) 
+        
 
-gear.tbl <- gear.tbl[2:5] 
-gear.tbl <- gear.tbl %>% group_by(Gear) %>% summarise(prop = sum(prop))
-
-label <- c("80.4%", "8.6%", "8.3%", "2%", "0.8%")
-
-ggplot(gear.tbl, aes(x = "", y = prop, fill=fct_inorder(Gear))) + 
-  geom_bar(width=1, stat = "identity", alpha=0.8) + 
- #geom_label_repel(aes(label = round(prop*100, digits=1)), size=6, show.legend = F, nudge_x = 0.1) +
-  #geom_text(aes(x = 1.5, y = midpoint, label = label), angle=45) +
-  coord_polar("y", start=0) +
-  scale_fill_brewer(palette = "Paired") +
-   theme(panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(), 
-        plot.title = element_text(hjust=0.5), 
-        legend.direction = "vertical",
-        legend.position = "right",
-        legend.background = element_blank(),
-        legend.key=element_blank(),
-        legend.key.size = unit(1, "line"),
-        legend.text = element_text(size=10),
-        legend.title = element_blank(),
-        panel.background = element_blank(),
-        axis.line = element_blank(),
-        axis.text = element_blank(),
-        axis.title = element_blank(),
-        axis.ticks = element_blank(),
-        plot.margin = unit(c(0,0,0,0), "cm"),
-        text = element_text(size=13,colour = "black", face = "bold"))
+# pie chart of gears by percentage    
+    ggplot(gear.tbl, aes(x = "", y = prop, fill=fct_inorder(Gear))) + 
+      geom_bar(width=1, stat = "identity", alpha=0.8) + 
+       geom_label_repel(aes(label = round(prop*100, digits=1)), size=6, show.legend = F, nudge_x = 0.1) +
+        coord_polar("y", start=0) +
+         scale_fill_brewer(palette = "Paired") +
+           theme(panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(), 
+                plot.title = element_text(hjust=0.5), 
+                legend.direction = "vertical",
+                legend.position = "right",
+                legend.background = element_blank(),
+                legend.key=element_blank(),
+                legend.key.size = unit(1, "line"),
+                legend.text = element_text(size=10),
+                legend.title = element_blank(),
+                panel.background = element_blank(),
+                axis.line = element_blank(),
+                axis.text = element_blank(),
+                axis.title = element_blank(),
+                axis.ticks = element_blank(),
+                plot.margin = unit(c(0,0,0,0), "cm"),
+                text = element_text(size=13,colour = "black", face = "bold"))
 
 
 #time x gear x effort
-
 ggplot(cod.dat, aes(x=Date, fill=GTName)) + geom_histogram(bins= 32, color="grey42") +
 scale_x_datetime(labels = date_format("%b-%d-%Y"), date_breaks = "1 month") +
   theme_minimal() +   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
                             axis.title = element_blank())
 
 #condition data prep
-
 colnames(cod.dat)[75:88] # names of grading columns
 cond.dat <- cod.dat[,c(6,23,25,56,64,75:88)]
 cond.dat <- cond.dat[-which(cond.dat$Grade == "NULL"), ] # drop "NULL" values from df
@@ -83,18 +87,19 @@ cond.dat$day   <- day(cond.dat$Date)
 cols <- colnames(cond.dat)[7:19]
 cond.dat[cols] <- lapply(cond.dat[cols], factor) 
 cond.melt <- reshape2::melt(cond.dat, id=c("Date", "DateSet", "DateHaul", "PUDate", "UNQID_PRO", "SampleSize", "SampleNo", "IceType")) 
+
+# bar plot of the number of graded fish by category
 cond.melt %>% filter(!value %in% c("A", "R", "`")) %>% 
   filter(!variable %in% "Grade") %>%
   ggplot(., aes(x=variable, fill=value)) + coord_flip() + labs(fill="Grade") +
   scale_fill_manual(values=c("grey60", "black")) +
   geom_bar(alpha=0.8) + 
   xlab("Condition") + ylim(0,3000) +
-  #annotate("text", y=3000, x=5, label= "B Grading") + 
   theme
 
-
+#subset just the time variables
 time.dat <- cod.dat %>% select(Date, DateSet, TimeSet, DateHaul, TimeHaul, StowStart, StowEnd, LandTime, UnloadStart, UnloadEnd, PUDate, PUTime, DelDate, DelTime, ProcDate, ProcStart, ProcEnd)
-
+#convert each component into a datetime object for easier calculations
 time.dat$Set_DT <- mdy_hms(paste(time.dat$DateSet, time.dat$TimeSet), tz="Canada/Newfoundland")
 time.dat$Haul_DT <- mdy_hms(paste(time.dat$DateHaul, time.dat$TimeHaul), tz="Canada/Newfoundland")
 time.dat$Stowstart_DT <- mdy_hms(paste(time.dat$DateHaul, time.dat$StowStart), tz="Canada/Newfoundland")
@@ -110,8 +115,9 @@ time.dat$ProcEnd_DT <- mdy_hms(paste(time.dat$ProcDate, time.dat$ProcEnd), tz="C
 time.dat$Index <- c(1:length(time.dat$Date)) #create index column 
 cod.dat$Index <- c(1:length(cod.dat$Date))
 
-time.dat <- time.dat[complete.cases(time.dat), ] # Store the complete cases subset in a new data frame
+#time.dat <- time.dat[complete.cases(time.dat), ] # Store the complete cases subset in a new data frame
 
+#create a subset of key variables
 cod.sub <- cod.dat %>% 
   select(Index, 
          Site,
@@ -125,34 +131,33 @@ cod.sub <- cod.dat %>%
          Grade, 
          GradeBP,
          MaxDepth) %>%
-           mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
+           mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>%   # combine handline and hook and line
             filter(!Grade %in% c("NULL", "R"))
 
 
-time.sub <- time.dat %>% left_join(., cod.sub, by="Index")
-time.sub$GTName <- trimws(time.sub$GTName)
+time.sub <- time.dat %>% left_join(., cod.sub, by="Index") # join the time variables with other subset
+time.sub$GTName <- trimws(time.sub$GTName)                # remove white-space in the names <- an excel based error
 time.sub <- time.sub %>% mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
                   filter(!Grade %in% c("NULL", "R"))
 
 time.sub$date <- as.POSIXct(as.character(time.sub$Date), format='%m/%d/%Y')
 time.sub$year <- year(time.sub$date)
 
-
-#Example timeline
+# example timeline plot
 time.dat  <- time.dat[,c(18:29)]
 time.melt <- melt(time.dat, id="Index")
 
 
-time.labels 
+# supply chain plot
 
-dislocations <- runif(11,-1.5,1.5)
+dislocations <- runif(11,-1.5,1.5) # generate random numbers for plotting offsets
 
-time.melt %>% filter(Index %in% 1550) %>% ggplot(., aes(x=value, y=0, label=variable)) +
+time.melt %>% filter(Index %in% 1550) %>%  # select a random observation to look at timeline
+  ggplot(., aes(x=value, y=0, label=variable)) +
   geom_hline(yintercept = 0, linetype="dashed") +
   geom_point(size=4) + 
   geom_segment(  aes(x = value, y=dislocations, xend=value, yend=0, alpha=.7 )) +
   geom_text(aes(x = value, y = dislocations, label=variable), angle = 45, position="jitter") + ylim(-2,2) + 
-  
   theme_bw(base_size=14) +
   theme(legend.position="none", 
        axis.text.y = element_blank(),
@@ -160,18 +165,28 @@ time.melt %>% filter(Index %in% 1550) %>% ggplot(., aes(x=value, y=0, label=vari
        axis.title.y = element_blank())
 
 
-time.dat$day <- yday(time.dat$Set_DT)
-
+# seasonal plot
+time.dat$day <- yday(time.dat$Set_DT) # creates a julian day variable
 ggplot(time.dat, aes(x=day)) + geom_histogram(color="black", bins=36) +xlim(0,360) +  xlab("Julian Day") + theme
 
+time.dat$month <- month(time.dat$Set_DT)# creats a month variable
+time.dat$year <- year(time.dat$Set_DT)
+
+# plot of the observations by month
+ggplot(time.dat, aes(x=month)) +  
+  geom_bar(position="identity", bins=12, color="black",fill="grey42") +
+scale_x_continuous(labels = c(2, 4, 6, 8, 10, 12)) +
+xlim(0,12) + theme
+ 
+
 # look at variability of timeline in CoC
-time.dat$Soak <- as.numeric(time.dat$Haul_DT - time.dat$Set_DT)/60/60 # calculated in minutes
+time.dat$Soak <- as.numeric(time.dat$Haul_DT - time.dat$Set_DT)/60/60 # calculated in hours
 
 time.dat$Stow <- as.numeric(time.dat$Stowend_DT - time.dat$Stowstart_DT)/60/60
 
 time.dat$Unload <-  as.numeric(time.dat$UnloadEnd_DT - time.dat$UnloadStart_DT)/60/60
 
-time.dat$Dock <- as.numeric(time.dat$PU_DT - time.dat$UnloadEnd_DT)/60/60 # calculated in minutes
+time.dat$Dock <- as.numeric(time.dat$PU_DT - time.dat$UnloadEnd_DT)/60/60 
 
 time.dat$Delivery <-  as.numeric(time.dat$Del_DT - time.dat$PU_DT)/60/60
 
@@ -180,17 +195,16 @@ time.dat$Factory <- as.numeric(time.dat$ProcStart_DT - time.dat$Haul_DT)/60/60
 
 time.melt <- melt(time.dat, by=c("Soak", "Stow", "Unload", "Dock", "Delivery", "Factory"))
 
-
+#boxplot of time intervals in the dataset
 time.melt %>% filter(variable %in% c("Soak", "Stow", "Unload", "Dock", "Delivery", "Factory")) %>%
   filter(value > 0) %>% filter(value < 2500) %>% 
   ggplot(., aes(x=reorder(variable,value), y=log10(value), group=variable)) + xlab("Time Intervals") + ylab("log10(Hours)") +
   geom_boxplot() + theme
 
+
+# random plots to look at soak time
 hist(time.dat$Unload)
 ggplot(time.melt, aes(x=variable))
-
-
-
 
 #Soak time - how long the gear was in the water
 time.sub$Soak <- as.numeric(time.sub$Haul_DT - time.sub$Set_DT)/60 # calculated in minutes
@@ -200,7 +214,6 @@ time.sub %>% filter(between(Soak, 0, 10000)) %>%
   theme_minimal(base_size=14) + facet_grid(~year)
 
 #Soak time distribution across years
-
 time.sub$Year <- year(as.POSIXct(as.character(time.sub$Date), format='%d/%m/%Y'))
 time.sub %>% filter(between(Soak, 0, 10000)) %>% 
   filter(GTName == "NETS") %>%
@@ -248,6 +261,8 @@ time.sub %>% filter(between(Total, 0, 10000)) %>%
   theme_minimal(base_size=14) + facet_grid(~GTName)
 
 
+#grading
+
 # summarize the percentage of each grade
 cod.sum <- cod.sub %>% 
 group_by(HLogId, Grade) %>% 
@@ -261,13 +276,6 @@ cod.sum %>%
   filter(Grade %in% "B") %>% 
   ggplot(., aes(x=freq, y=as.numeric(wwt))) + 
   geom_point()
-
-
-
-filter(Grade %in% "A") %>%
-  summarize(dwngrd = 1 - mean(freq))
-
-
 
 
 #distributions
@@ -286,6 +294,8 @@ cod.sum <- cod.sub %>%
             harv = unique(UNQID_HARVESTER)) %>%
               mutate(freq = n / sum(n))
 
+
+# select random harvesters to look at patterns
 H_102 <- cod.sum %>% filter(Grade %in% "A") %>% 
   filter(harv %in% "H-102") %>% filter(freq < 1)
 H_204 <- cod.sum %>% filter(harv %in% "H-204")
@@ -321,7 +331,6 @@ H_104 <- cod.sum %>% filter(harv %in% "H-104")
   
 #total downgrades by region
  
-
 site.grd <- cod.sub %>% 
   filter(GTName == "COD POTS") %>%
   group_by(Site, Grade) %>% 
@@ -335,8 +344,6 @@ ggplot(site.grd, aes(x=reorder(Site, -freq), y=(1-freq)*100)) +
   geom_bar(stat="identity", fill="navyblue")  + coord_flip() + ylab("Percent Downgraded") + xlab("Site") +
   theme_minimal(base_size=10) 
 
-
-ggplot(, aes(x=Site, ))
 
 # grader effects 
 # there appears to be more than one grader per haul
@@ -373,13 +380,13 @@ grd.sum <- cod.sub %>%
   filter(Grade %in% "A") 
 
 
-
 ggplot(grd.sum, aes(x=UNQID_GRADERS,
                     y=Site, fill=(1-freq)*100)) +
   geom_tile(stat="identity") +
   scale_fill_viridis_c(name = "Percent Downgraded")  +
   theme_minimal(base_size=8) + theme(axis.text.x = element_text(angle=90),
                                      legend.position = "top")
+
 
 #additional factors that appear to have little effect on grade
 ice <- cod.sub %>%   filter(!Grade %in% "NULL" ) %>% 
@@ -406,11 +413,7 @@ depth <-  cod.sub %>%   filter(!Grade %in% "NULL" ) %>%
 depth %>% filter(Grade == "A") %>%
    ggplot(., aes(x=as.numeric(MaxDepth), y=freq)) + geom_point()
 
-
-
-
 #temperature variability within the major dataset. 
-
 
 temp.sub <- cod.dat %>% 
   select(Index, 
@@ -419,7 +422,7 @@ temp.sub <- cod.dat %>%
          GTName,
          WaterTemp,
          FishTemp,
-         FishTemp.1,
+         FishTemp.1, # these should have better names in the database. 
          FishTemp.2,
          FishTemp.3,
          FishTemp.4,
@@ -469,7 +472,7 @@ insptemp <- temp.sub %>% filter(GTName %in% "NETS") %>%
 
 cowplot::plot_grid(watertemp, catchtemp, landtemp, transtemp, proctemp, insptemp)
 
-#load temperature logger data. 
+#load temperature logger data. - This is as far a I got with temp logger data.
 temp.dat <- read_xlsx("Temperature logger files/1247_34-22-08-20-1.xlsx", sheet=1)
 temp.dat <- read_xlsx("Temperature logger files/1303_51-23-08-20-1.xlsx", sheet=1)
 temp.dat <- read_xlsx("Temperature logger files/1526_36-13-09-20-1.xlsx", sheet=1)

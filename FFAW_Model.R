@@ -9,7 +9,6 @@ library(lubridate)
 #set up a standard theme for all plots 
 theme <- theme_bw(base_size = 14)
 
-
 #modelling tools
 library(lme4)
 library(DHARMa)
@@ -17,10 +16,9 @@ library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
 
-
 ### DATA PREPARATION ###
 
-cod.dat$Index <- c(1:length(cod.dat$Date)) # an an index for each measurement 
+cod.dat$Index <- c(1:length(cod.dat$Date)) # add an index for each measurement 
 
 #subset the relevant information for the model
 cod.sub <- cod.dat %>% 
@@ -43,23 +41,26 @@ cod.sub <- cod.dat %>%
          ProcStart,
          DateHaul,
          TimeHaul) %>%
-  mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% 
+  mutate(GTName = recode(GTName, "HOOK AND LINE" = "HANDLINE")) %>% # in case this wasnt done before
   filter(!Grade %in% c("NULL"))
   
-
+# compute the handling and transport time as a single variable "Total"
 cod.sub$Haul_DT <- mdy_hms(paste(cod.sub$DateHaul, cod.sub$TimeHaul), tz="Canada/Newfoundland")
 cod.sub$ProcStart_DT <- mdy_hms(paste(cod.sub$ProcDate, cod.sub$ProcStart), tz="Canada/Newfoundland")
 cod.sub$Total <- as.numeric(cod.sub$ProcStart_DT - cod.sub$Haul_DT)/60  # total time between haul and process in minutes
 
+# compute the soak time - "Soak"
 cod.sub$Set_DT <- mdy_hms(paste(cod.sub$DateSet, cod.sub$TimeSet), tz="Canada/Newfoundland")
 cod.sub$Haul_DT <- mdy_hms(paste(cod.sub$DateHaul, cod.sub$TimeHaul), tz="Canada/Newfoundland")
 cod.sub$Soak <- as.numeric(cod.sub$Haul_DT - cod.sub$Set_DT)/60 
 
-colnames(cod.sub)[13] <- "Trans_Temp"
+colnames(cod.sub)[13] <- "Trans_Temp" # rename Fish.Temp3 to "Trans_temp"
 
+# calculate summary by haul and condition for model input
+# before doing this, make sure to replace Grade/Bruising/Texture with the desired value in three places in the pipeline below
 cod.in <- cod.sub %>%
           filter(GTName %in% "NETS") %>%
-        group_by(HLogId,Bruising) %>%                 #replace Grade with bruising, or texture
+        group_by(HLogId,Bruising) %>%                 # REPLACE Grade with bruising, or texture - depending on the model
           dplyr::summarise(gear = unique(GTName), 
                     date = unique(Date),
                     n = n(), 
@@ -72,15 +73,20 @@ cod.in <- cod.sub %>%
                     harvester = unique(UNQID_HARVESTER),
                     grader = paste(unique(UNQID_GRADERS), collapse=",")) %>%
                           ungroup() %>%
-                            tidyr::complete(Bruising, nesting(HLogId, wwt, gear, date, site, time, soak, water_temp, trans_temp, harvester)) %>% # completes all possible combinations of grades
+                            tidyr::complete(Bruising,                 #REPLACE Grade with bruising, or texture - depending on the model
+                                            nesting(HLogId, 
+                                                    wwt, gear, 
+                                                    date, site, time,
+                                                    soak, water_temp, 
+                                                    trans_temp, harvester)) %>% # completes all possible combinations of grades
                              dplyr::arrange(., HLogId) %>% 
                               dplyr::mutate(n = tidyr::replace_na(n, 0)) %>% # replaces all NAs from complete() with 0.  
                               group_by(HLogId) %>%  
                                 mutate(freq = n / sum(n),       # calculates the frequency of A scores within the haul
                                             sum = sum(n))  %>%     # #gives us the total number of graded fish in each haul
-                                      filter(Bruising %in% "A") %>%
-                                       filter(between(time, 0, 10000)) %>%
-                                        filter(soak > 0)
+                                      filter(Bruising %in% "A") %>%     #rREPLACE Grade with bruising, or texture - depending on the model
+                                       filter(between(time, 0, 10000)) %>% # removes extraneous values
+                                        filter(soak > 0)                  # soak time cannot be negative
 
 #pull out year
 cod.in$date <- as.POSIXct(as.character(cod.in$date), format='%m/%d/%Y')
@@ -91,21 +97,21 @@ cod.in$water_temp <- as.numeric(as.character(cod.in$water_temp))
 cod.in$trans_temp <- as.numeric(as.character(cod.in$trans_temp))
 cod.in$wwt <- as.numeric(as.character(cod.in$wwt))
 cod.in$time <- as.numeric(as.character(cod.in$time))
-
-#convert from frequency of A to frequency of non-"A"
-cod.in$freq <- 1- cod.in$freq
-
-#create a binary temperature variable to deal with bimodal distribution
-#cod.in <- cod.in %>% mutate(bi.temp = case_when(water_temp <= 5 ~ 0, 
- #                                               water_temp > 5 ~ 1))
-
-
+# make sure random effects are coded as factors
 cod.in$harvester <- as.factor(cod.in$harvester)
 cod.in$site <- as.factor(cod.in$site)
 cod.in$grader <- as.factor(cod.in$grader)
 
+#convert from frequency of A to frequency of non-"A"
+cod.in$freq <- 1- cod.in$freq
 
+# create a binary index for quality - as we discovered only good fits using a binomial model
+cod.in <- cod.in %>% mutate(quality = case_when(freq < 0.1 ~ 1,
+                                                freq >= 0.1 ~ 0))
 
+#create a binary temperature variable to deal with bimodal distribution
+#cod.in <- cod.in %>% mutate(bi.temp = case_when(water_temp <= 5 ~ 0, 
+#                                               water_temp > 5 ~ 1))
 
 ### DATA EXPLORATION AND PLOTS ###
 #quick and dirty data explorations done here
@@ -151,6 +157,8 @@ wt <- cod.in %>%
 
 
 plot_grid(tt, wt, ncol=2, align="hv")
+
+
 ### MODELLING ###
 
 # Setting up the model
@@ -270,17 +278,17 @@ simulationOutput <- simulateResiduals(fittedModel = binom.glm, plot = T)
 
 #quasibinomial 
 
+# Here is where the working models begin...
 # convert data to binomial - seems to be supported by group. But need to decide on a final threshold
-
-cod.in <- cod.in %>% mutate(quality = case_when(freq < 0.1 ~ 1,
-                                                  freq >= 0.1 ~ 0))
+# in case it wasn't calculated above -->
+#cod.in <- cod.in %>% mutate(quality = case_when(freq < 0.1 ~ 1,
+#                                                 freq >= 0.1 ~ 0))
 
 true.binom <- glmer(quality ~ scale(wwt) + scale(time) +scale(trans_temp) + (1 | harvester) + (1 | site) + (1|grader),  
       data=cod.in, family="binomial")
 
 testDispersion(true.binom)
 simulationOutput <- simulateResiduals(fittedModel = true.binom, plot = T)
-
 summary(true.binom)
 
 #add soak time to the binomial model
@@ -291,7 +299,6 @@ true.binom <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + sca
 testDispersion(true.binom)
 simulationOutput <- simulateResiduals(fittedModel = true.binom, plot = T)
 summary(true.binom)
-
 
 #add water temperature to the binomial model
 
@@ -327,8 +334,8 @@ simulationOutput <- simulateResiduals(fittedModel = true.binom, plot = T)
 summary(true.binom)
 
 
-# model output, in table format. 
-library(sjPlot)
+# model output, in html table format. 
+library(sjPlot)  # also an awesome package for coefficent plots
 library(sjmisc)
 library(sjlabelled)
 
@@ -337,7 +344,6 @@ tab_model(gausnz.glm)
 tab_model(binom.glm)
 tab_model(zinb.glm)
 tab_model(true.binom)
-
 
 #BEST models - re-run the sampling for cod.in for net vs. all gear, adding soak time, and texture and bruising both with soak time. 
 
@@ -363,12 +369,14 @@ bruise.ag  <- glmer(quality ~ scale(wwt) + scale(time) + scale(trans_temp) + sca
                     data=cod.in, family="binomial")
   
 
+# do this to test for gear effect 
 cod.in <- cod.in %>% ungroup() %>% mutate(gear_code = case_when(gear=="NETS" ~ "A",
                                                   gear=="LONGLINE" ~ "B",
                                                   gear=="COD POTS" ~ "C",
                                                   gear=="HANDLINE" ~ "D"))
 cod.in$gear_code <- as.factor(cod.in$gear_code)
 
+#gear model
 gear.mod <- glmer(quality ~ scale(wwt) + scale(time) + gear_code + (1 | harvester) + (1 | grader) + (1 | site),
                   data=cod.in, family="binomial")
 
@@ -402,7 +410,5 @@ bi.text <- plot_model(texture.ag, show.values = T, sort.est = T, vline.color = "
 bi.bruise <- plot_model(bruise.ag, show.values = T, sort.est = T, vline.color = "red") + ylim(0.5, 1.5) +
   xlab("") + labs(title="Bruising [Gillnets]") + theme 
 
-
-
-
+# combine all the best models and put them in a single coefficient plot
 cowplot::plot_grid(bi.ag1, bi.net1, bi.gear,bi.net2, bi.text, bi.bruise, ncol=2)
